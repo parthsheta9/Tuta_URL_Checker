@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>URL Existence Checker</title>
+    <style>
+      body {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        height: 100vh;
+        background: #f0f2f5;
+        margin: 0;
+        font-family: sans-serif;
+      }
+      .card {
+        background: white;
+        padding: 2rem;
+        border-radius: 12px;
+        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.1);
+        width: 400px;
+      }
+      h2 {
+        margin-top: 0;
+        color: #333;
+      }
+      input {
+        width: 100%;
+        padding: 12px;
+        font-size: 16px;
+        border: 2px solid #ddd;
+        border-radius: 8px;
+        box-sizing: border-box;
+        outline: none;
+        transition: border-color 0.2s;
+      }
+      input.checking {
+        border-color: #007bff;
+      }
+      input.valid {
+        border-color: #28a745;
+      }
+      input.invalid {
+        border-color: #dc3545;
+      }
+      .status {
+        margin-top: 15px;
+        font-size: 14px;
+        font-weight: 500;
+        min-height: 1.2em;
+      }
+      .loading {
+        color: #007bff;
+      }
+      .success {
+        color: #28a745;
+      }
+      .error {
+        color: #dc3545;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="card">
+      <h2>URL Checker</h2>
+      <input
+        id="urlInput"
+        placeholder="Enter URL (e.g., google.com/)"
+        autocomplete="off"
+      />
+      <div id="status" class="status"></div>
+    </div>
+
+    <script>
+      const input = document.getElementById("urlInput");
+      const statusDiv = document.getElementById("status");
+      let abortController = null;
+
+      // Format Validation
+      function getUrl(value) {
+        let properValue = value.trim();
+        if (!properValue) return null;
+        //Adding https:// if not present
+        if (!/^https?:\/\//i.test(properValue)) {
+          properValue = "https://" + properValue;
+        }
+        try {
+          return new URL(properValue);
+        } catch (e) {
+          return null;
+        }
+      }
+
+      //  Mocking a Server response
+      function MockCheckUrl(url, signal) {
+        return new Promise((resolve, reject) => {
+          const latency = 400 + Math.random() * 400;
+          const timer = setTimeout(() => {
+            const MockDatabase = {
+              "https://tuta.com/": "folder",
+              "https://data.com/ParthShetaResume.pdf": "file",
+              "https://data.com/ArbeitZeugnis.pdf": "file",
+              "https://www.dw.com/": "folder",
+              "https://google.com/": "folder",
+              "https://example.com/file.txt": "file",
+              "https://github.com/": "folder",
+            };
+
+            if (MockDatabase[url]) {
+              resolve({ exists: true, type: MockDatabase[url] });
+            } else {
+              resolve({ exists: false });
+            }
+          }, latency);
+          // If the request is aborted, stop the timer and reject
+          signal.addEventListener("abort", () => {
+            clearTimeout(timer);
+            reject(new DOMException("Aborted", "AbortError"));
+          });
+        });
+      }
+
+      // Throttle
+      //function runs at most once every 'limit' milliseconds
+      function throttle(fn, limit) {
+        let inThrottle;
+        return function (...args) {
+          if (!inThrottle) {
+            fn.apply(this, args);
+            inThrottle = true;
+            setTimeout(() => (inThrottle = false), limit);
+          }
+        };
+      }
+
+      // Checking the URL
+
+      const performCheck = async (rawValue) => {
+        const urlObj = getUrl(rawValue);
+        // UI Reset if empty
+        if (!rawValue) {
+          updateUI("", "");
+          return;
+        }
+        // Format check
+        if (!urlObj) {
+          updateUI("Invalid URL format", "error");
+          return;
+        }
+
+        if (abortController) abortController.abort();
+        abortController = new AbortController();
+
+        updateUI("Checking server...", "loading");
+
+        try {
+          const result = await MockCheckUrl(
+            urlObj.href,
+            abortController.signal
+          );
+
+          if (result.exists) {
+            updateUI(` Exists (${result.type})`, "success");
+          } else {
+            updateUI(" Resource not found", "error");
+          }
+        } catch (error) {
+          // Ignore cancelled requests
+          if (error.name === "AbortError") return;
+          updateUI("⚠️ Network Error", "error");
+        }
+      };
+
+      //  UI Helper
+      function updateUI(message, type) {
+        statusDiv.textContent = message;
+        statusDiv.className = `status ${type}`;
+
+        input.classList.remove("checking", "valid", "invalid");
+        if (type === "loading") input.classList.add("checking");
+        if (type === "success") input.classList.add("valid");
+        if (type === "error") input.classList.add("invalid");
+      }
+
+      // Execution
+      const throttledCheck = throttle(performCheck, 800);
+      input.addEventListener("input", (e) => throttledCheck(e.target.value));
+    </script>
+  </body>
+</html>
