@@ -69,14 +69,17 @@
         placeholder="Enter URL (e.g., google.com/)"
         autocomplete="off"
       />
-      <div id="status" class="status"></div>
+      <div
+        id="status"
+        class="status"
+        aria-live="polite"
+        aria-atomic="true"
+      ></div>
     </div>
 
     <script>
       const input = document.getElementById("urlInput");
       const statusDiv = document.getElementById("status");
-      let abortController = null;
-
       // Format Validation
       function getUrl(value) {
         let properValue = value.trim();
@@ -104,21 +107,16 @@
       };
 
       //  Mocking a Server response
-      function MockCheckUrl(url, signal) {
-        return new Promise((resolve, reject) => {
+      function MockCheckUrl(url) {
+        return new Promise((resolve) => {
           const latency = 400 + Math.random() * 400;
-          const timer = setTimeout(() => {
+          setTimeout(() => {
             if (MockDatabase[url]) {
               resolve({ exists: true, type: MockDatabase[url] });
             } else {
               resolve({ exists: false });
             }
           }, latency);
-          // If the request is aborted, stop the timer and reject
-          signal.addEventListener("abort", () => {
-            clearTimeout(timer);
-            reject(new DOMException("Aborted", "AbortError"));
-          });
         });
       }
 
@@ -134,39 +132,22 @@
       }
 
       // Checking the URL
-      const performCheck = async (rawValue) => {
-        if (abortController) abortController.abort();
-        abortController = null;
-        // UI Reset if empty
-        if (!rawValue) {
-          updateUI("", "");
-          return;
-        }
-        // Format check
-        const urlObj = getUrl(rawValue);
-        if (!urlObj) {
-          updateUI("Invalid URL format", "error");
-          return;
-        }
-
-        abortController = new AbortController();
-
-        updateUI("Checking server...", "loading");
-
+      // Gen counter to replace AbortController
+      let currentGen = 0;
+      const performCheck = async (urlObj) => {
+        const gen = ++currentGen;
         try {
-          const result = await MockCheckUrl(
-            urlObj.href,
-            abortController.signal
-          );
+          const result = await MockCheckUrl(urlObj.href);
 
+          // Discard if a newer request has been made
+          if (gen !== currentGen) return;
           if (result.exists) {
-            updateUI(` Exists (${result.type})`, "success");
+            updateUI(`Exists (${result.type})`, "success");
           } else {
-            updateUI(" Resource not found", "error");
+            updateUI("Resource not found", "error");
           }
-        } catch (error) {
-          // Ignore cancelled requests
-          if (error.name === "AbortError") return;
+        } catch {
+          if (gen !== currentGen) return;
           updateUI("⚠️ Network Error", "error");
         }
       };
@@ -184,7 +165,25 @@
 
       // Execution
       const debouncedCheck = debounce(performCheck, 500);
-      input.addEventListener("input", (e) => debouncedCheck(e.target.value));
+      input.addEventListener("input", (e) => {
+        const raw = e.target.value;
+        // Runs immediately on every keystroke
+        const urlObj = getUrl(raw);
+        if (!raw.trim()) {
+          currentGen++;
+          updateUI("", "");
+          return;
+        }
+        if (!urlObj) {
+          currentGen++;
+          updateUI("Invalid URL format", "error");
+          return;
+        }
+
+        updateUI("Checking server...", "loading");
+        // Only the server call is debounced
+        debouncedCheck(urlObj);
+      });
     </script>
   </body>
 </html>
